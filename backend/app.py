@@ -32,6 +32,9 @@ logger = structlog.get_logger()
 # Import routes
 from routes import config_routes, chat_routes, session_routes, prompt_routes, graph_routes, graph_viewer_routes, export_routes
 
+# Import custom exceptions
+from utils.exceptions import AppException
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -69,22 +72,43 @@ app.add_middleware(
 )
 
 
-# Global exception handler
+# Application exception handler
+@app.exception_handler(AppException)
+async def app_exception_handler(request: Request, exc: AppException):
+    """Handle application-specific exceptions with user-friendly messages."""
+    logger.error(
+        "application_exception",
+        exception_type=exc.__class__.__name__,
+        path=request.url.path,
+        method=request.method,
+        status_code=exc.status_code,
+        message=exc.message,
+        details=exc.details
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content=exc.to_dict()
+    )
+
+
+# Global exception handler for uncaught errors
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
-    """Handle uncaught exceptions."""
+    """Handle uncaught exceptions with generic error message."""
     logger.error(
         "unhandled_exception",
         path=request.url.path,
         method=request.method,
         error=str(exc),
+        error_type=type(exc).__name__,
         exc_info=True
     )
     return JSONResponse(
         status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         content={
-            "error": "Internal server error",
-            "message": "An unexpected error occurred. Please try again later."
+            "error": "InternalServerError",
+            "message": "An unexpected error occurred. Our team has been notified. Please try again later.",
+            "details": {}
         }
     )
 
