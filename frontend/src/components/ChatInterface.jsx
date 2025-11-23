@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 // import ReactMarkdown from 'react-markdown';
-import { startInvestigation, sendMessage } from '../services/api';
+import { startInvestigation, sendMessage, getConfigStatus } from '../services/api';
 
 /**
  * ChatInterface Component
@@ -15,51 +15,81 @@ import { startInvestigation, sendMessage } from '../services/api';
  * - Timestamp display
  * - Investigation completion detection
  */
-function ChatInterface({ onSessionChange, onStateChange }) {
+function ChatInterface({ onSessionChange, onStateChange, onNavigateToConfig }) {
   // Session state
   const [sessionId, setSessionId] = useState(null);
   const [messages, setMessages] = useState([]);
   const [investigationComplete, setInvestigationComplete] = useState(false);
-  
+
   // Input state
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  
+
   // Initial loading
   const [initializing, setInitializing] = useState(true);
-  
+  const [isConfigured, setIsConfigured] = useState(false);
+
   // Refs
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
-  
+
   /**
    * Scroll to bottom of messages
    */
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   };
-  
+
+  // Check configuration on mount
+  useEffect(() => {
+    checkConfiguration();
+  }, []);
+
+  const checkConfiguration = async () => {
+    try {
+      const status = await getConfigStatus();
+      const hasActiveProvider = status.active_provider;
+      const hasToken = status.providers?.[hasActiveProvider]?.token_exists;
+      const hasModel = status.providers?.[hasActiveProvider]?.selected_model;
+
+      if (hasActiveProvider && hasToken && hasModel) {
+        setIsConfigured(true);
+        // Only start investigation if we don't have a session yet
+        if (!sessionId) {
+          handleStartInvestigation();
+        }
+      } else {
+        setIsConfigured(false);
+        setInitializing(false);
+      }
+    } catch (err) {
+      console.error('Failed to check configuration:', err);
+      setError('Failed to check configuration status');
+      setInitializing(false);
+    }
+  };
+
   /**
    * Start a new investigation
    */
   const handleStartInvestigation = async () => {
     setInitializing(true);
     setError(null);
-    
+
     try {
       console.log('[ChatInterface] Starting investigation...');
       const response = await startInvestigation();
       console.log('[ChatInterface] Investigation started:', response);
-      
+
       if (!response || !response.session_id) {
         throw new Error('Invalid response from server: missing session_id');
       }
-      
+
       if (!response.question || !response.question.text) {
         throw new Error('Invalid response from server: missing question');
       }
-      
+
       setSessionId(response.session_id);
       if (onSessionChange) {
         onSessionChange(response.session_id);
@@ -67,7 +97,7 @@ function ChatInterface({ onSessionChange, onStateChange }) {
       if (onStateChange && response.question.category) {
         onStateChange(response.question.category);
       }
-      
+
       setMessages([{
         type: 'system',
         content: response.question.text,
@@ -75,49 +105,54 @@ function ChatInterface({ onSessionChange, onStateChange }) {
         questionId: response.question.id,
         category: response.question.category
       }]);
-      
+
       setInvestigationComplete(false);
     } catch (err) {
       console.error('Failed to start investigation:', err);
-      const errorMsg = err.response?.data?.detail || err.message || 'Failed to start investigation';
-      setError(errorMsg);
-      
-      // Add error message to chat
-      setMessages([{
-        type: 'error',
-        content: `⚠️ **Error starting investigation:**\n\n${errorMsg}\n\nPlease check:\n1. Backend server is running\n2. You have configured an API token\n3. You have selected a model`,
-        timestamp: new Date().toISOString()
-      }]);
+      const errorMsg = err.response?.data?.detail?.message || err.response?.data?.detail || err.message || 'Failed to start investigation';
+
+      // Check if it's a configuration error
+      if (err.response?.status === 401 || err.response?.status === 400) {
+        setIsConfigured(false);
+      } else {
+        setError(errorMsg);
+        // Add error message to chat
+        setMessages([{
+          type: 'error',
+          content: `⚠️ **Error starting investigation:**\n\n${errorMsg}`,
+          timestamp: new Date().toISOString()
+        }]);
+      }
     } finally {
       setInitializing(false);
     }
   };
-  
+
   /**
    * Send user message
    */
   const handleSendMessage = async () => {
     if (!input.trim() || loading || !sessionId) return;
-    
+
     // Add user message to UI
     const userMessage = {
       type: 'user',
       content: input.trim(),
       timestamp: new Date().toISOString()
     };
-    
+
     setMessages(prev => [...prev, userMessage]);
     setInput('');
     setLoading(true);
     setError(null);
-    
+
     try {
       const response = await sendMessage(sessionId, userMessage.content);
-      
+
       // Check if investigation is complete
       if (response.complete) {
         setInvestigationComplete(true);
-        
+
         // Add completion message
         const completionMessage = {
           type: 'system',
@@ -125,7 +160,7 @@ function ChatInterface({ onSessionChange, onStateChange }) {
           timestamp: new Date().toISOString(),
           isCompletion: true
         };
-        
+
         setMessages(prev => [...prev, completionMessage]);
       } else if (response.question) {
         // Add next question
@@ -136,26 +171,26 @@ function ChatInterface({ onSessionChange, onStateChange }) {
           questionId: response.question.id,
           category: response.question.category
         };
-        
+
         // Notify parent of state change
         if (onStateChange && response.question.category) {
           onStateChange(response.question.category);
         }
-        
+
         setMessages(prev => [...prev, systemMessage]);
       }
     } catch (err) {
       console.error('Failed to send message:', err);
       const errorMsg = err.response?.data?.detail || err.message || 'Failed to send message';
       setError(errorMsg);
-      
+
       // Add error message to chat
       const errorMessage = {
         type: 'error',
         content: `⚠️ **Error:** ${errorMsg}`,
         timestamp: new Date().toISOString()
       };
-      
+
       setMessages(prev => [...prev, errorMessage]);
     } finally {
       setLoading(false);
@@ -163,7 +198,7 @@ function ChatInterface({ onSessionChange, onStateChange }) {
       setTimeout(() => inputRef.current?.focus(), 100);
     }
   };
-  
+
   /**
    * Handle Enter key press
    */
@@ -173,7 +208,7 @@ function ChatInterface({ onSessionChange, onStateChange }) {
       handleSendMessage();
     }
   };
-  
+
   /**
    * Reset investigation
    */
@@ -185,39 +220,56 @@ function ChatInterface({ onSessionChange, onStateChange }) {
     setError(null);
     handleStartInvestigation();
   };
-  
+
   /**
    * Format timestamp for display
    */
   const formatTime = (timestamp) => {
     const date = new Date(timestamp);
-    return date.toLocaleTimeString('en-US', { 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    return date.toLocaleTimeString('en-US', {
+      hour: '2-digit',
+      minute: '2-digit'
     });
   };
-  
+
   // Auto-scroll to bottom when messages change
   useEffect(() => {
     scrollToBottom();
   }, [messages]);
-  
-  // If initializing state is still true on first render, show button to start
-  if (initializing && messages.length === 0) {
+
+  // If not configured, show configuration prompt
+  if (!initializing && !isConfigured) {
     return (
-      <div className="w-full max-w-4xl mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-xl p-8 text-center">
-        <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-4">💬 Product Investigation</h2>
-        <p className="text-gray-600 dark:text-gray-300 mb-6">Click the button below to start a new investigation</p>
+      <div className="w-full max-w-4xl mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-xl p-12 text-center flex flex-col items-center justify-center" style={{ height: '600px' }}>
+        <div className="w-20 h-20 bg-yellow-100 dark:bg-yellow-900/30 rounded-full flex items-center justify-center mb-6">
+          <span className="text-4xl">⚙️</span>
+        </div>
+        <h2 className="text-3xl font-bold text-gray-800 dark:text-white mb-4">Configuration Required</h2>
+        <p className="text-xl text-gray-600 dark:text-gray-300 mb-8 max-w-md">
+          Please configure your API token and select a model to start the product investigation.
+        </p>
         <button
-          onClick={handleStartInvestigation}
-          className="px-6 py-3 bg-indigo-600 hover:bg-indigo-700 text-white font-medium rounded-lg transition-colors"
+          onClick={() => onNavigateToConfig && onNavigateToConfig()}
+          className="px-8 py-4 bg-indigo-600 hover:bg-indigo-700 text-white text-lg font-medium rounded-xl transition-all shadow-lg hover:shadow-xl flex items-center gap-2"
         >
-          Start Investigation
+          <span>Go to Settings</span>
+          <span>→</span>
         </button>
       </div>
     );
   }
-  
+
+  // If initializing state is still true on first render, show button to start
+  if (initializing && messages.length === 0) {
+    return (
+      <div className="w-full max-w-4xl mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-xl p-8 text-center flex flex-col items-center justify-center" style={{ height: '600px' }}>
+        <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-indigo-600 mb-6"></div>
+        <h2 className="text-2xl font-bold text-gray-800 dark:text-white mb-2">Starting Investigation...</h2>
+        <p className="text-gray-600 dark:text-gray-300">Connecting to AI assistant...</p>
+      </div>
+    );
+  }
+
   return (
     <div className="w-full max-w-4xl mx-auto bg-white dark:bg-gray-800 rounded-lg shadow-xl overflow-hidden flex flex-col" style={{ height: '600px' }}>
       {/* Header */}
@@ -243,47 +295,36 @@ function ChatInterface({ onSessionChange, onStateChange }) {
           </button>
         )}
       </div>
-      
+
       {/* Messages Container */}
       <div className="flex-1 overflow-y-auto p-6 space-y-4 bg-gray-50 dark:bg-gray-900">
-        {/* Initializing state */}
-        {initializing && (
-          <div className="flex items-center justify-center h-full">
-            <div className="text-center">
-              <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto mb-4"></div>
-              <p className="text-gray-600 dark:text-gray-400">Starting investigation...</p>
-            </div>
-          </div>
-        )}
-        
+
         {/* Messages */}
-        {!initializing && messages.map((message, index) => (
+        {messages.map((message, index) => (
           <div
             key={index}
             className={`flex ${message.type === 'user' ? 'justify-end' : 'justify-start'}`}
           >
             <div
-              className={`max-w-[80%] rounded-lg px-4 py-3 ${
-                message.type === 'user'
+              className={`max-w-[80%] rounded-lg px-4 py-3 ${message.type === 'user'
                   ? 'bg-indigo-600 text-white'
                   : message.type === 'error'
-                  ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200'
-                  : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-md border border-gray-200 dark:border-gray-700'
-              }`}
+                    ? 'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 text-red-800 dark:text-red-200'
+                    : 'bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-md border border-gray-200 dark:border-gray-700'
+                }`}
             >
               {/* Message content */}
               <div className="message-content">
                 <p className="whitespace-pre-wrap">{message.content}</p>
               </div>
-              
+
               {/* Metadata */}
-              <div className={`flex items-center gap-2 mt-2 text-xs ${
-                message.type === 'user' 
-                  ? 'text-indigo-100' 
+              <div className={`flex items-center gap-2 mt-2 text-xs ${message.type === 'user'
+                  ? 'text-indigo-100'
                   : message.type === 'error'
-                  ? 'text-red-600 dark:text-red-400'
-                  : 'text-gray-500 dark:text-gray-400'
-              }`}>
+                    ? 'text-red-600 dark:text-red-400'
+                    : 'text-gray-500 dark:text-gray-400'
+                }`}>
                 <span>{formatTime(message.timestamp)}</span>
                 {message.category && (
                   <>
@@ -301,7 +342,7 @@ function ChatInterface({ onSessionChange, onStateChange }) {
             </div>
           </div>
         ))}
-        
+
         {/* Loading indicator */}
         {loading && (
           <div className="flex justify-start">
@@ -317,11 +358,11 @@ function ChatInterface({ onSessionChange, onStateChange }) {
             </div>
           </div>
         )}
-        
+
         {/* Scroll anchor */}
         <div ref={messagesEndRef} />
       </div>
-      
+
       {/* Error display */}
       {error && !loading && (
         <div className="px-6 py-3 bg-red-50 dark:bg-red-900/20 border-t border-red-200 dark:border-red-800">
@@ -330,7 +371,7 @@ function ChatInterface({ onSessionChange, onStateChange }) {
           </p>
         </div>
       )}
-      
+
       {/* Investigation complete message */}
       {investigationComplete && (
         <div className="px-6 py-3 bg-green-50 dark:bg-green-900/20 border-t border-green-200 dark:border-green-800">
@@ -339,7 +380,7 @@ function ChatInterface({ onSessionChange, onStateChange }) {
           </p>
         </div>
       )}
-      
+
       {/* Input Area */}
       <div className="border-t border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4">
         <div className="flex gap-3">
@@ -349,8 +390,8 @@ function ChatInterface({ onSessionChange, onStateChange }) {
             onChange={(e) => setInput(e.target.value)}
             onKeyPress={handleKeyPress}
             placeholder={
-              investigationComplete 
-                ? "Investigation complete. Click 'New Investigation' to start over." 
+              investigationComplete
+                ? "Investigation complete. Click 'New Investigation' to start over."
                 : "Type your answer... (Shift+Enter for new line)"
             }
             disabled={loading || initializing || investigationComplete}
@@ -382,10 +423,10 @@ function ChatInterface({ onSessionChange, onStateChange }) {
             )}
           </button>
         </div>
-        
+
         {/* Helper text */}
         <p className="mt-2 text-xs text-gray-500 dark:text-gray-400">
-          Press <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded border border-gray-300 dark:border-gray-600">Enter</kbd> to send, 
+          Press <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded border border-gray-300 dark:border-gray-600">Enter</kbd> to send,
           <kbd className="px-2 py-1 bg-gray-100 dark:bg-gray-700 rounded border border-gray-300 dark:border-gray-600 ml-1">Shift+Enter</kbd> for new line
         </p>
       </div>

@@ -152,7 +152,7 @@ class ModelChecker:
                 response = await client.get(
                     "https://api.groq.com/openai/v1/models",
                     headers={"Authorization": f"Bearer {api_key}"},
-                    timeout=10.0
+                    timeout=30.0
                 )
                 response.raise_for_status()
                 
@@ -212,6 +212,9 @@ class ModelChecker:
             "gemma-7b-it": 8192,
             "llama3-8b-8192": 8192,
             "llama3-70b-8192": 8192,
+            "llama-3.3-70b-versatile": 32768,
+            "llama-3.1-8b-instant": 128000,
+            "meta-llama/llama-4-scout-17b-16e-instruct": 32768,
         }
         return context_windows.get(model_id, 4096)  # Default to 4096
     
@@ -270,7 +273,7 @@ class ModelChecker:
                 response = await client.get(
                     "https://api.openai.com/v1/models",
                     headers={"Authorization": f"Bearer {api_key}"},
-                    timeout=10.0
+                    timeout=30.0
                 )
                 response.raise_for_status()
                 
@@ -359,7 +362,7 @@ class ModelChecker:
         
         return models
     
-    def validate_model_selection(
+    async def validate_model_selection(
         self,
         provider: str,
         model_id: str,
@@ -371,13 +374,23 @@ class ModelChecker:
         Args:
             provider: Provider name
             model_id: Model ID to validate
-            available_models: Optional list of available models (uses cache if not provided)
+            available_models: Optional list of available models (uses cache/fetch if not provided)
             
         Returns:
             True if model is valid, False otherwise
         """
         if available_models is None:
+            # Try to get from cache first
             available_models = self.get_cached_models(provider)
+            
+            # If not in cache, fetch fresh models
+            if not available_models:
+                try:
+                    logger.info("cache_miss_validating_model", provider=provider)
+                    available_models = await self.fetch_models(provider)
+                except Exception as e:
+                    logger.error("failed_fetch_validation", provider=provider, error=str(e))
+                    return False
             
         if not available_models:
             logger.warning("no_models_for_validation", provider=provider)
@@ -423,7 +436,8 @@ class ModelChecker:
                 model=model_id,
                 temperature=kwargs.get("temperature", 0.7),
                 max_tokens=kwargs.get("max_tokens", 2000),
-                streaming=kwargs.get("streaming", False)
+                streaming=kwargs.get("streaming", False),
+                request_timeout=kwargs.get("timeout", 60.0)
             )
         elif provider == "openai":
             # Set env variable for OpenAI
@@ -432,7 +446,8 @@ class ModelChecker:
                 model=model_id,
                 temperature=kwargs.get("temperature", 0.7),
                 max_tokens=kwargs.get("max_tokens", 2000),
-                streaming=kwargs.get("streaming", False)
+                streaming=kwargs.get("streaming", False),
+                request_timeout=kwargs.get("timeout", 60.0)
             )
         else:
             raise ValueError(f"Unsupported provider: {provider}")

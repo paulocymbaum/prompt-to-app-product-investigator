@@ -69,7 +69,7 @@ function App() {
             <h2 className="text-2xl font-semibold text-gray-800 dark:text-white mb-4">
               Backend Status
             </h2>
-            
+
             {loading && (
               <div className="flex items-center justify-center py-8">
                 <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600"></div>
@@ -148,22 +148,20 @@ function App() {
               <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg p-2 flex gap-2">
                 <button
                   onClick={() => setActiveTab('chat')}
-                  className={`flex-1 py-3 px-6 rounded-lg font-medium transition-all ${
-                    activeTab === 'chat'
+                  className={`flex-1 py-3 px-6 rounded-lg font-medium transition-all ${activeTab === 'chat'
                       ? 'bg-indigo-600 text-white shadow-md'
                       : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                  }`}
+                    }`}
                 >
                   <span className="mr-2">💬</span>
                   Chat Interface
                 </button>
                 <button
                   onClick={() => setActiveTab('prompt')}
-                  className={`flex-1 py-3 px-6 rounded-lg font-medium transition-all ${
-                    activeTab === 'prompt'
+                  className={`flex-1 py-3 px-6 rounded-lg font-medium transition-all ${activeTab === 'prompt'
                       ? 'bg-indigo-600 text-white shadow-md'
                       : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                  }`}
+                    }`}
                   disabled={!sessionId}
                 >
                   <span className="mr-2">📝</span>
@@ -171,11 +169,10 @@ function App() {
                 </button>
                 <button
                   onClick={() => setActiveTab('config')}
-                  className={`flex-1 py-3 px-6 rounded-lg font-medium transition-all ${
-                    activeTab === 'config'
+                  className={`flex-1 py-3 px-6 rounded-lg font-medium transition-all ${activeTab === 'config'
                       ? 'bg-indigo-600 text-white shadow-md'
                       : 'bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-600'
-                  }`}
+                    }`}
                 >
                   <span className="mr-2">⚙️</span>
                   Configuration
@@ -190,9 +187,10 @@ function App() {
               {activeTab === 'chat' && (
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
                   <div className="lg:col-span-2">
-                    <ChatInterface 
+                    <ChatInterface
                       onSessionChange={(id) => setSessionId(id)}
                       onStateChange={(state) => setCurrentState(state)}
+                      onNavigateToConfig={() => setActiveTab('config')}
                     />
                   </div>
                   <div className="lg:col-span-1">
@@ -208,7 +206,7 @@ function App() {
               )}
               {activeTab === 'prompt' && (
                 <div className="bg-white dark:bg-gray-800 rounded-lg shadow-lg" style={{ minHeight: '600px' }}>
-                  <PromptDisplay 
+                  <PromptDisplay
                     sessionId={sessionId}
                     onError={(error) => {
                       console.error('[App] Prompt display error:', error);

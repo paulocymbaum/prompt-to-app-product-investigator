@@ -296,7 +296,7 @@ async def select_model(
     
     try:
         # Validate model exists
-        is_valid = checker.validate_model_selection(request.provider, request.model_id)
+        is_valid = await checker.validate_model_selection(request.provider, request.model_id)
         
         if not is_valid:
             logger.warning(

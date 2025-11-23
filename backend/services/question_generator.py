@@ -28,45 +28,45 @@ class QuestionGenerator:
         """
         self.llm = llm_service
         
-        # Category-based question templates
+        # Category-based question templates (Fallback)
         self.category_templates = {
             ConversationState.START: [
-                "Let's start by understanding your product idea. What problem does your product solve?"
+                "I'm excited to hear about your idea! To get us started, could you tell me what core problem your product solves?"
             ],
             ConversationState.FUNCTIONALITY: [
-                "What are the main features users will interact with?",
-                "How will users accomplish their primary goals with your product?",
-                "What makes your product's functionality unique or innovative?"
+                "That sounds interesting. Let's dive into the details—what are the main features users will interact with?",
+                "I'd love to understand the user experience better. How will users accomplish their primary goals with your product?",
+                "What would you say makes your product's functionality unique or innovative compared to what's out there?"
             ],
             ConversationState.USERS: [
-                "Who are the primary users of your product?",
-                "What expertise level do your users have (beginner, intermediate, expert)?",
-                "What are the key characteristics of your target users?"
+                "Let's talk about the people who will use this. Who do you see as your primary users?",
+                "Understanding your audience is key. What expertise level do your users have (beginner, intermediate, expert)?",
+                "What are the key characteristics or behaviors of your target users?"
             ],
             ConversationState.DEMOGRAPHICS: [
-                "What is the age range of your target audience?",
-                "What geographic regions are you primarily targeting?",
-                "Are there specific demographic factors important for your product?"
+                "Thinking about demographics, what is the age range of your target audience?",
+                "Are there specific geographic regions you are primarily targeting?",
+                "Are there any specific demographic factors that are important for your product's success?"
             ],
             ConversationState.DESIGN: [
-                "Do you have specific design preferences (modern, minimal, bold, playful)?",
-                "Are there any brand colors or style guidelines you'd like to follow?",
-                "What mood or feeling should the design convey to users?"
+                "Now, let's visualize the product. Do you have specific design preferences (like modern, minimal, bold, or playful)?",
+                "Visually, are there any brand colors or style guidelines you'd like to follow?",
+                "What kind of mood or feeling should the design convey to your users?"
             ],
             ConversationState.MARKET: [
-                "Who are your main competitors in the market?",
-                "What is your unique value proposition compared to alternatives?",
-                "What market segment or niche are you targeting?"
+                "Moving on to the market landscape—who are your main competitors?",
+                "In a crowded market, what is your unique value proposition compared to the alternatives?",
+                "Is there a specific market segment or niche you are targeting?"
             ],
             ConversationState.TECHNICAL: [
-                "Do you have any technical stack preferences or requirements?",
-                "What are your scalability expectations (users, data volume)?",
-                "Are there specific integrations or APIs you need to support?"
+                "On the technical side, do you have any specific stack preferences or requirements?",
+                "What are your expectations regarding scalability (e.g., number of users, data volume)?",
+                "Are there any specific integrations or APIs you know you'll need to support?"
             ],
             ConversationState.REVIEW: [
-                "Let me summarize what we've discussed. Does this capture your vision accurately?",
-                "Is there anything important we haven't covered yet?",
-                "Would you like to clarify or expand on any aspect?"
+                "We've covered a lot of ground! Let me summarize what we've discussed. Does this capture your vision accurately?",
+                "Before we finish, is there anything important about your product that we haven't covered yet?",
+                "Would you like to clarify or expand on any aspect of our conversation?"
             ]
         }
         
@@ -96,7 +96,8 @@ class QuestionGenerator:
         self,
         session: Session,
         latest_answer: str,
-        context: Optional[List[str]] = None
+        context: Optional[List[str]] = None,
+        messages: Optional[List] = None
     ) -> Optional[Question]:
         """
         Generate the next question based on session state and latest answer.
@@ -105,11 +106,13 @@ class QuestionGenerator:
             session: Current conversation session
             latest_answer: User's most recent answer
             context: RAG context chunks (optional)
+            messages: Conversation history (optional)
             
         Returns:
             Next Question object, or None if conversation is complete
         """
         context = context or []
+        messages = messages or []
         
         # Check if conversation is complete
         next_state = self._determine_next_state(session.state)
@@ -132,7 +135,7 @@ class QuestionGenerator:
                 session,
                 latest_answer,
                 context,
-                messages=None  # Will be passed from ConversationService
+                messages=messages
             )
         else:
             logger.info(
@@ -144,7 +147,7 @@ class QuestionGenerator:
                 next_state,
                 context,
                 session,
-                messages=None  # Will be passed from ConversationService
+                messages=messages
             )
     
     def _determine_next_state(
@@ -239,9 +242,13 @@ Generate a concise follow-up question that:
 2. Helps clarify vague or incomplete information
 3. Reveals important details about their product
 4. Is specific and actionable
-5. Is friendly and conversational
+5. Is friendly and conversational (e.g., "Could you elaborate on...", "That's interesting, how would...")
 
-Keep the question under 20 words. Do not include any preamble or explanation."""
+CRITICAL INSTRUCTIONS:
+- Integrate your reasoning naturally into the question (e.g., "Since you mentioned X, I'm curious about Y...").
+- Do NOT use headers like "Reasoning:" or "Question:".
+- Keep the entire response conversational and under 60 words.
+"""
         
         # Build context string
         context_str = "\n\n".join(context[-3:]) if context else ""
@@ -251,7 +258,7 @@ Keep the question under 20 words. Do not include any preamble or explanation."""
         if messages:
             recent_messages = messages[-8:] if len(messages) >= 8 else messages
             history_str = "\n".join([
-                f"{'Q' if msg.role == 'assistant' else 'A'}: {msg.content}"
+                f"{'Q' if (hasattr(msg.role, 'value') and msg.role.value == 'assistant') or msg.role == 'assistant' else 'A'}: {msg.content}"
                 for msg in recent_messages
             ])
         
@@ -260,7 +267,7 @@ Keep the question under 20 words. Do not include any preamble or explanation."""
             context_section = f"\nPrevious context:\n{context_str}\n"
         
         user_prompt = f"""Current investigation category: {session.state.value}
-
+        
 Recent conversation:
 {history_str}
 
@@ -307,7 +314,7 @@ Generate a follow-up question to better understand their product."""
         messages: Optional[List] = None
     ) -> Optional[Question]:
         """
-        Generate a category-specific question.
+        Generate a category-specific question using LLM for context awareness.
         
         Args:
             state: Target conversation state
@@ -318,6 +325,7 @@ Generate a follow-up question to better understand their product."""
         Returns:
             Category Question object, or None if no templates available
         """
+        # Get templates as fallback/guide
         templates = self.category_templates.get(state, [])
         
         if not templates:
@@ -326,30 +334,112 @@ Generate a follow-up question to better understand their product."""
                 state=state.value
             )
             return None
-        
-        # For MVP, use template rotation
-        # Count how many questions we've asked in this category
-        category_count = 0
-        if messages:
-            category_count = sum(
-                1 for msg in messages
-                if msg.role == 'assistant' and msg.metadata.get('category') == state.value
+            
+        # If we don't have messages history yet, use the first template to start fast
+        if not messages and state == ConversationState.START:
+             return Question(
+                id=str(uuid.uuid4()),
+                text=templates[0],
+                category=state.value,
+                is_followup=False,
+                timestamp=datetime.utcnow()
             )
+
+        # Build context from previous answers to make the question relevant
+        history_summary = ""
+        if messages:
+            # Get last few exchanges to maintain flow
+            recent_messages = messages[-6:] if len(messages) >= 6 else messages
+            history_summary = "\n".join([
+                f"{'Q' if (hasattr(msg.role, 'value') and msg.role.value == 'assistant') or msg.role == 'assistant' else 'A'}: {msg.content}"
+                for msg in recent_messages
+            ])
+
+        system_prompt = """You are an expert product investigator conducting a discovery interview.
+Your goal is to systematically gather information about a product idea across different dimensions (Functionality, Users, Design, etc.).
+
+Current Focus: {category}
+
+Generate a specific, engaging question to start exploring this topic.
+The question should:
+1. Be relevant to the user's previous answers (if any)
+2. Focus on the '{category}' aspect of their product
+3. Be conversational and professional (use a brief bridge if appropriate, e.g., "That's a great insight about...")
+4. Not repeat questions already asked
+5. Be open-ended to encourage detailed responses
+
+Example topics for {category}:
+{examples}
+
+5. Be open-ended to encourage detailed responses
+
+Example topics for {category}:
+{examples}
+
+CRITICAL INSTRUCTIONS:
+- Integrate your reasoning naturally into the question (e.g., "Given that this is a {category} product, we should consider...").
+- Do NOT use headers like "Reasoning:" or "Question:".
+- Keep the entire response conversational and under 80 words.
+"""
+
+        # Format examples from templates
+        examples_text = "\n".join([f"- {t}" for t in templates[:3]])
         
-        # Select template (rotate through available templates)
-        template_idx = category_count % len(templates)
-        question_text = templates[template_idx]
+        # Format RAG context
+        context_section = ""
+        if context:
+            context_str = "\n".join(context[:3])
+            context_section = f"\nRelevant Context from previous topics:\n{context_str}\n"
         
-        # Optionally enhance with LLM for personalization (future enhancement)
-        # For now, use templates directly
-        
-        return Question(
-            id=str(uuid.uuid4()),
-            text=question_text,
-            category=state.value,
-            is_followup=False,
-            timestamp=datetime.utcnow()
-        )
+        user_prompt = f"""Context of conversation so far:
+{history_summary}
+{context_section}
+We are moving to a new topic: {state.value}.
+Generate a question to introduce this topic and gather key information. Acknowledge the previous context if relevant."""
+
+        try:
+            # Generate question using LLM
+            question_text = await self.llm.generate_response(
+                system_prompt=system_prompt.format(
+                    category=state.value,
+                    examples=examples_text
+                ),
+                user_message=user_prompt,
+                temperature=0.7
+            )
+            
+            # Clean up response
+            question_text = question_text.strip().strip('"').strip("'")
+            
+            logger.info(
+                "generated_dynamic_category_question",
+                category=state.value,
+                question_length=len(question_text)
+            )
+
+            return Question(
+                id=str(uuid.uuid4()),
+                text=question_text,
+                category=state.value,
+                is_followup=False,
+                timestamp=datetime.utcnow()
+            )
+        except Exception as e:
+            logger.error(
+                "llm_category_question_failed",
+                error=str(e),
+                error_type=type(e).__name__,
+                category=state.value,
+                context_length=len(history_summary) if messages else 0
+            )
+            # EXPLICIT ERROR REPORTING FOR TESTING
+            return Question(
+                id=str(uuid.uuid4()),
+                text=f"[SYSTEM ERROR] Category Question Generation Failed: {str(e)}",
+                category=state.value,
+                is_followup=False,
+                timestamp=datetime.utcnow()
+            )
     
     def _get_template_followup(self, state: ConversationState, answer: str) -> str:
         """
@@ -364,6 +454,11 @@ Generate a follow-up question to better understand their product."""
         """
         # Generic follow-up templates by category
         followup_templates = {
+            ConversationState.START: [
+                "Could you tell me a bit about the product idea you have in mind?",
+                "To help you best, I need to understand the main problem your product solves. What is it?",
+                "Please describe the core concept of your product."
+            ],
             ConversationState.FUNCTIONALITY: [
                 "Can you give me a specific example of how that would work?",
                 "What would be the most important aspect of that feature?",

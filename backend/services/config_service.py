@@ -258,7 +258,13 @@ class ConfigService:
         if model:
             logger.info("selected_model_retrieved", provider=provider, model=model)
         else:
-            logger.warning("no_model_selected", provider=provider)
+            # Fallback defaults
+            defaults = {
+                "groq": "llama-3.3-70b-versatile",
+                "openai": "gpt-4-turbo-preview"
+            }
+            model = defaults.get(provider)
+            logger.warning("no_model_selected_using_default", provider=provider, default_model=model)
         
         return model
     

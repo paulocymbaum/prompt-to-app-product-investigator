@@ -305,12 +305,52 @@ class ConversationService:
                     session_id=session_id
                 )
         
+        # Build a short history summary for the meta‑prompt
+        recent_msgs = self.messages.get(session_id, [])[-6:]
+        history_summary = "\n".join([
+            f"{'Q' if (hasattr(msg.role, 'value') and msg.role.value == 'assistant') or msg.role == 'assistant' else 'A'}: {msg.content}"
+            for msg in recent_msgs
+        ])
+
+        # Ask the LLM whether the retrieved context is sufficient
+        try:
+            sufficient = await self.question_gen._is_context_sufficient(
+                history_summary=history_summary,
+                rag_context=context_chunks,
+            )
+        except Exception as e:
+            logger.error(
+                "context_sufficiency_check_failed",
+                error=str(e),
+                session_id=session_id,
+            )
+            # Fallback to treating as insufficient
+            sufficient = False
+
+        # If not sufficient, force a follow‑up in the current state
+        if not sufficient:
+            next_question = await self.question_gen._generate_followup(
+                session=session,
+                latest_answer=answer_text,
+                context=context_chunks if context_chunks else [],
+                messages=self.messages.get(session_id, []),
+            )
+        else:
+            # Let QuestionGenerator decide (it will move to next category if appropriate)
+            next_question = await self.question_gen.generate_next_question(
+                session=session,
+                latest_answer=answer_text,
+                context=context_chunks if context_chunks else None,
+                messages=self.messages.get(session_id, []),
+            )
+
         # Use QuestionGenerator if available, otherwise fallback to legacy method
         if self.question_gen:
             next_question = await self.question_gen.generate_next_question(
                 session=session,
                 latest_answer=answer_text,
-                context=context_chunks if context_chunks else None
+                context=context_chunks if context_chunks else None,
+                messages=self.messages.get(session_id, [])
             )
             
             # Check if investigation is complete
@@ -644,7 +684,8 @@ The user's latest answer was brief. Generate a follow-up question to help them e
             next_question = await self.question_gen.generate_next_question(
                 session=session,
                 latest_answer="[SKIPPED]",
-                context=[]
+                context=[],
+                messages=self.messages.get(session_id, [])
             )
             
             # Check if investigation is complete

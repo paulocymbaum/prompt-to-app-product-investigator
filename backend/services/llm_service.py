@@ -54,6 +54,20 @@ class LLMService:
         self.max_tokens = 2000
         
         logger.info("llm_service_initialized")
+        
+        # Attempt to initialize from saved config
+        try:
+            provider = self.config.get_active_provider()
+            model_id = self.config.get_selected_model(provider)
+            
+            if provider and model_id:
+                self.initialize_provider(
+                    provider=provider,
+                    model_id=model_id
+                )
+                logger.info("llm_service_auto_initialized", provider=provider, model_id=model_id)
+        except Exception as e:
+            logger.warning("llm_service_auto_init_failed", error=str(e))
     
     def initialize_provider(
         self,

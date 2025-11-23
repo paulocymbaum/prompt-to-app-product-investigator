@@ -14,13 +14,17 @@ sleep 2
 echo "✅ Ports cleared"
 echo ""
 
+# Get script directory
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+
 # Start backend
 echo "🔧 Starting backend..."
-cd /Users/paulocymbaum/lovable_prompt_generator/backend
-/Users/paulocymbaum/lovable_prompt_generator/.venv/bin/python -m uvicorn app:app --reload --host 0.0.0.0 --port 8000 > /tmp/backend.log 2>&1 &
+cd "$SCRIPT_DIR/backend"
+source "$SCRIPT_DIR/.venv/bin/activate"
+python -m uvicorn app:app --reload --host 0.0.0.0 --port 8000 > /tmp/backend.log 2>&1 &
 BACKEND_PID=$!
 echo "   Backend PID: $BACKEND_PID"
-sleep 3
+sleep 8
 
 # Check backend started
 if lsof -ti:8000 > /dev/null; then
@@ -34,11 +38,11 @@ echo ""
 
 # Start frontend
 echo "🎨 Starting frontend..."
-cd /Users/paulocymbaum/lovable_prompt_generator/frontend
+cd "$SCRIPT_DIR/frontend"
 npm run dev > /tmp/frontend.log 2>&1 &
 FRONTEND_PID=$!
 echo "   Frontend PID: $FRONTEND_PID"
-sleep 3
+sleep 5
 
 # Check frontend started
 if lsof -ti:5173 > /dev/null; then
