@@ -13,7 +13,6 @@ Dependencies:
 
 from datetime import datetime
 from typing import Dict, List, Optional
-from weasyprint import HTML
 import markdown as md
 from jinja2 import Template
 import structlog
@@ -21,6 +20,14 @@ import structlog
 from storage.conversation_storage import ConversationStorage
 from services.prompt_generator import PromptGenerator
 from services.graph_service import GraphService
+
+# Optional WeasyPrint import - gracefully handle if not available
+try:
+    from weasyprint import HTML
+    WEASYPRINT_AVAILABLE = True
+except (ImportError, OSError) as e:
+    WEASYPRINT_AVAILABLE = False
+    WEASYPRINT_ERROR = str(e)
 
 logger = structlog.get_logger(__name__)
 
@@ -66,9 +73,15 @@ class ExportService:
             bytes: PDF file content
             
         Raises:
-            ValueError: If session not found or conversion fails
+            ValueError: If session not found or conversion fails or WeasyPrint not available
         """
         self.logger.info("Exporting to PDF", session_id=session_id)
+        
+        # Check if WeasyPrint is available
+        if not WEASYPRINT_AVAILABLE:
+            error_msg = f"PDF export not available: WeasyPrint dependencies missing. Install system dependencies (pango, gdk-pixbuf, etc.). Error: {WEASYPRINT_ERROR}"
+            self.logger.error("PDF export unavailable", error=error_msg)
+            raise ValueError(error_msg)
         
         try:
             # Generate HTML first
